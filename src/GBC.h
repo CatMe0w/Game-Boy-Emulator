@@ -47,12 +47,11 @@ namespace GBC {
             
             address_bus addresses;
 
-
             SM83 cpu;
             PPU ppu;
 
             int prevpc = 0, cachedsp, frame = 0;
-            unsigned long long count = 0;
+            unsigned long long cycle_count = 0;
 
     };
 }

@@ -8,29 +8,19 @@
 #include <bitset>
 
 namespace GBC {
-
     void SM83::execute() {
-
     increment_timer();
-
-    if (--cycles > 0) return;
-    
-    // if (memory->read(IF) & (1 << 2) == 0) stathigh = false;
-    
+    if (--cycles > 0) return;    
     
     if (pc > 0xFF && memory->booting) {
         memory->booting = false;
         dump_registers();
     }
     
-
-    // TODO
     if (IME && (memory->read(IF) && memory->read(IE))) {
-        // std::ofstream("log.txt", std::ofstream::app) << "interrupt: " << "pc: " << std::hex << pc << '\n';
-        // std::ofstream("log.txt", std::ofstream::app) << "IF: " << std::bitset<8>(memory->read(IF)) << '\n';
-
         if ((memory->read(IF) & 1) && (memory->read(IE) & 0b1)) {
             IME = 0;
+
             memory->write(IF, (memory->read(IF) & 1) & ~(1));   
             call_interrupt(0x40);
             return;
@@ -63,8 +53,8 @@ namespace GBC {
             call_interrupt(0x60);
             return;
         }
-
     }
+
     if (IMEdelay) { 
         IME = true; 
         IMEdelay = false;
@@ -72,8 +62,6 @@ namespace GBC {
     
     uint8_t opcode = fetch8();
     cycles += opcode_cycles[opcode];
-
-
 
     if (opcode <= 0x3F)
     switch (opcode) {
@@ -126,8 +114,6 @@ namespace GBC {
             instrRRCA();
             return;
         case 0x10: // STOP
-            // (Typically halts the CPU until an external event)
-            // For now, call a dedicated STOP instruction.
             instrSTOP();
             return;
         case 0x11: // LD DE, d16
@@ -1405,7 +1391,7 @@ namespace GBC {
                 memory->IOrange[TIMA-IO_REGISTERS] = memory->read(TMA);
                 memory->write(IE, memory->read(IE) | (1<<2));
             }
-
+            
             timacounter %= 1024;
         }
     }
@@ -1413,17 +1399,15 @@ namespace GBC {
     void SM83::dump_registers() {
         std::ofstream("log.txt", std::ofstream::app) << "rA: " << (int)RA << " ";
         std::ofstream("log.txt", std::ofstream::app) << "rB: " << (int)RB << " ";
-
         std::ofstream("log.txt", std::ofstream::app) << "rC: " << (int)RC << " ";
         std::ofstream("log.txt", std::ofstream::app) << "rD: " << (int)RD << '\n';
-        
+    
         std::ofstream("log.txt", std::ofstream::app) << "rE: " << (int)RE << " ";
         std::ofstream("log.txt", std::ofstream::app) << "rF: " << (int)RF << " ";
         std::ofstream("log.txt", std::ofstream::app) << "rH: " << (int)RH << " ";
         std::ofstream("log.txt", std::ofstream::app) << "rH: " << (int)RL << '\n';
-
-
     }
+
     void SM83::dump_info() {
         std::ofstream("log.txt", std::ofstream::app) << "timer: " << (int)memory->read(DIV) << '\n';
         std::ofstream("log.txt", std::ofstream::app) << "TAC: " << (int)memory->read(TAC) << '\n';

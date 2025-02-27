@@ -1,6 +1,6 @@
-
-
 #include "bus.h"
+
+// unfinished/moved to cpu
 
 namespace GBC {
     class timer {

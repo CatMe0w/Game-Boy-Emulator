@@ -4,7 +4,6 @@
 #include "timer.h"
 #include <iostream>
 
-
 #define RA r8[7]
 #define RB r8[0]
 #define RC r8[1]
@@ -69,7 +68,7 @@ namespace GBC {
         inline void setHL(uint16_t val) { r8[4] = val >> 8; r8[5] = val & 0xFF; }
 
         //===========================================================
-        // Fetch functions – replace the macros fetch_8/fetch_16
+        // Fetch functions
         //===========================================================
         inline uint8_t fetch8() {
             return memory->read(pc++);
@@ -117,12 +116,11 @@ namespace GBC {
         inline void instrSCF();
         inline void instrLdA_HLDec();
         inline void instrCCF();
-        inline void instrJR_Imm8();  // Unconditional relative jump
+        inline void instrJR_Imm8();  
 
-        // Relative jumps with condition 
+
         inline void instrJR_Cond_Imm8(bool condition);
 
-        // 16-bit register instructions
         inline void instrLdR16_Imm16(uint8_t regIndex);
         inline void instrAddHL_R16(uint8_t regIndex);
         inline void instrLdR16Mem_A(uint8_t regIndex);
@@ -182,12 +180,10 @@ namespace GBC {
         inline void instrDI();
         inline void instrEI();
 
-        // Conditional RET, JP, and CALL – grouped by condition
         inline void instrRET_Cond(bool condition);
         inline void instrJP_Cond_Imm16(bool condition);
         inline void instrCALL_Cond_Imm16(bool condition);
 
-        // --- RST, POP, and PUSH instructions
         inline void instrRST(uint8_t target);
         inline void instrPOP_R16(uint8_t regIndex);
         inline void instrPUSH_R16(uint8_t regIndex);
@@ -219,10 +215,11 @@ namespace GBC {
         // Interrupt Handler 
         inline void call_interrupt(uint16_t handler);
 
+        // Increment timer registers
         inline void increment_timer();
 
+        // Debug, outputs to "log.txt"
         void dump_registers();
         void dump_info();
-
     };
 }

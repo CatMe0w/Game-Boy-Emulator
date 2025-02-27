@@ -38,11 +38,6 @@ namespace GBC {
     }
 
     void address_bus::write(half address, byte value) {
-        // if (address < 0x0100 && booting) {
-        //     std::ofstream("log.txt", std::ofstream::app) << "should not be writing to boot?\n";
-        //     retu+objsizern;
-        // }
-
         if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
             if (lcd_mode == draw) return;
             videoRAM[address+vram_bank*8*KB-VIDEO_RAM] = value;
@@ -57,15 +52,11 @@ namespace GBC {
             workRAM[address-WORK_RAM_BANK0] = value;
             return;
         }
+
         if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
             workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN] = value; 
             return;
         }
-        
-        // if (address >= ECHO_RAM2 && address <= EECHO_RAM2) {
-        //     workRAM[address+wram_bank*4*KB-ECHO_RAM2] = value;
-        //     return;
-        // }
 
         if (address >= OAMaddress && address <= END_OAM) {
             if (lcd_mode == draw || lcd_mode == OAMscan) return;
@@ -110,12 +101,14 @@ namespace GBC {
                 return;
             case 0x11:
             case 0x12:
+            throw std::runtime_error(std::string("not supported ").append(std::to_string(mbc)));
             case 0x13: // MBC3 + ram + clock
                 writeMBC3(address, value);
                 return;
+            default:
+            throw std::runtime_error(std::string("not supported ").append(std::to_string(mbc)));
         }
         
-
         // throw std::runtime_error(std::string("mbc not valid ").append(std::to_string(address)));
     }
 
@@ -129,6 +122,7 @@ namespace GBC {
             }
             return;
         }
+
         if (address <= 0x3FFF) {
             debug = true;
             debug_value = value;
@@ -149,6 +143,7 @@ namespace GBC {
                cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM] = value;
             return;
         }
+
         throw std::runtime_error(std::string("write address not mapped ").append(std::to_string(address)));
     }
 
@@ -180,7 +175,6 @@ namespace GBC {
                 return;
             case NR13: // 0xFF13
                 IOrange[address-IO_REGISTERS] = val;
-                // std::ofstream("log.txt", std::ofstream::app) << "wrote to NR13" << std::hex << "address: " << address << " val: " << (int)val << '\n';
                 return;
             case NR14: // 0xFF14
                 IOrange[address-IO_REGISTERS] = val;
@@ -286,7 +280,7 @@ namespace GBC {
         }
     }
     
-
+    // TODO: Benchmark how slow this is. Might stop using it in static contexts, I'll see how well the compiler optimizes it
     byte address_bus::read(half address) {
         if (address < 0x0100 && booting) {
             return bootrom[address];
@@ -297,7 +291,6 @@ namespace GBC {
         }
 
         if (address >= ROM_BANK_NN && address <= END_ROM_BANK_NN) {
-            // std::ofstream("log.txt", std::ofstream::app) << std::hex<<int(address+16*KB*(rom_bank & 0x7F)-ROM_BANK_NN) << '\n';
             return cartROM[address+16*KB*(rom_bank & 0x7F)-ROM_BANK_NN];
         }
 
@@ -306,29 +299,35 @@ namespace GBC {
             return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
         }
 
-        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM)
+        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
             return cartRAM[address&0x1FF];
+        }
           
 
-        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) 
+        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
             return workRAM[address-WORK_RAM_BANK0];
+        }
 
-        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) 
+        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
             return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN]; 
+        }
         
-        if (address >= ECHO_RAM1 && address <= EECHO_RAM1)
+        if (address >= ECHO_RAM1 && address <= EECHO_RAM1) {
             return workRAM[address-ECHO_RAM1];
+        }
 
-        if (address >= ECHO_RAM2 && address <= EECHO_RAM2)
+        if (address >= ECHO_RAM2 && address <= EECHO_RAM2) {
             return workRAM[address+wram_bank*4*KB-ECHO_RAM2];
+        }
 
         if (address >= OAMaddress && address <= END_OAM) {
             if (lcd_mode == draw || lcd_mode == OAMscan) return 0xFF;
-            return OAM[address-OAMaddress]; // TODO HANDLE RETURNING TRASH
+            return OAM[address-OAMaddress];
         }
 
-        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) 
-            return IOrange[address-IO_REGISTERS]; // TODO: 
+        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
+            return IOrange[address-IO_REGISTERS]; 
+        }
 
         if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
             return HRAM[address-HIGH_RAM];
@@ -355,28 +354,34 @@ namespace GBC {
             return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
         }
 
-        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM)
-
+        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
             return cartRAM[address&0x1FF];
+        }
           
 
-        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) 
+        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
             return workRAM[address-WORK_RAM_BANK0];
+        }
 
-        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) 
+        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
             return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN]; 
+        }
         
-        if (address >= ECHO_RAM1 && address <= EECHO_RAM1)
+        if (address >= ECHO_RAM1 && address <= EECHO_RAM1) {
             return workRAM[address-ECHO_RAM1];
+        }
 
-        if (address >= ECHO_RAM2 && address <= EECHO_RAM2)
+        if (address >= ECHO_RAM2 && address <= EECHO_RAM2) {
             return workRAM[address+wram_bank*4*KB-ECHO_RAM2];
+        }
 
         if (address >= OAMaddress && address <= END_OAM) {
             return OAM[address-OAMaddress]; 
         }
-        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) 
+
+        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
             return IOrange[address-IO_REGISTERS]; 
+        }
 
         if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
             return HRAM[address-HIGH_RAM];

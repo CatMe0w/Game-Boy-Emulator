@@ -28,13 +28,17 @@ namespace GBC {
 
         state mode = hblank;
         address_bus *bus;
-        int dots = 0, lines = 0;
-        int renderX = 0;
-        obj objbuffer[10];
+        int dots = 0, lines = 0, renderX = 0;
 
-        
+        obj objbuffer[10];
         uint8_t objnum = 0;
-        uint8_t objind = 0;
+
+        SDL_Event event;
+        SDL_Renderer *renderer;
+        SDL_Window *window;
+
+        byte frame[160*144];
+        bool debug=0;
 
         void execute_cycle();
         void draw_pixel();
@@ -46,13 +50,5 @@ namespace GBC {
         byte objFIFO();
         byte bgFIFO();
         byte windowFIFO();
-
-
-        SDL_Event event;
-        SDL_Renderer *renderer;
-        SDL_Window *window;
-        byte frame[160*144];
-        bool debug=0;
-
     };
 }

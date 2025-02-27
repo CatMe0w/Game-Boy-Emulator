@@ -10,13 +10,15 @@ namespace GBC {
         start();
         std::ofstream("log.txt") << "";
     } 
+
     void GBC::start() {
         ppu.init_window();
         addresses.booting = true;
         addresses.IOrange[JOYP-IO_REGISTERS] = 0x3F;
     }
+
+    // This function is a mess, I'm using it to debug stuff right now
     void GBC::run() {
-        bool flag = 0;  
         if (addresses.booting == 0) {
             cpu.RA = 0x01;
             cpu.RB = 0xFF;
@@ -28,83 +30,48 @@ namespace GBC {
             cpu.pc = 0x100;
             cpu.sp = 0xFFFE;
         }
+
         while(true) {
-            if (!flag) {
-                ++frame;
+            ++frame;
 
-                for (int i = 0; i < 70224; ++i) {
-                    debug_execute_cycle(0);
+            // frame, TODO move out into function
+            for (int i = 0; i < 70224; ++i) {
+                debug_execute_cycle(0);
 
-                    if (ppu.mode == vblank) {
-                        for (int j = 0; j < 4560; ++j) {
-                            debug_execute_cycle(0);
-                        }
-                        break;
+                if (ppu.mode == vblank) {
+                    for (int j = 0; j < 4560; ++j) {
+                        debug_execute_cycle(0);
                     }
-                } 
+                    break;
+                }
             } 
 
-            // ppu.render_debug();
-
-            // dump_stuff();
-            
-
             if (SDL_PollEvent(&ppu.event) && ppu.event.type == SDL_EVENT_QUIT) break;
-                
 
-
-            // if (cpu.pc > 0x8000) {
-            //     break;
-            // }
-            std::this_thread::sleep_for(13ms);
-            
-
+            std::this_thread::sleep_for(13ms); // TODO make sleep based on elapsed frame execution time
         }
     }
 
     void GBC::execute_cycle() {
         cpu.execute();
         ppu.execute_cycle();
-        ++count;
+        ++cycle_count;
     }
 
     void GBC::debug_execute_cycle(bool flag) {
         prevpc = cpu.pc;
         execute_cycle();
         
-
-        // if(ppu.debug ) {
- 
-        //     addresses.debug = false;
-        //     ppu.debug = false;
-     
-        //     dump_stuff();
-        // }
-        
-        if( count % 10000 == 0) { 
-            // std::cout << std::dec << count << std::hex << std::endl; 
+        if (cycle_count % 10000 == 0) { 
+            // std::cout << std::dec << cycle_count << std::hex << std::endl; 
             dump_stuff();
         }
-        
-        // if (cpu.pc > 0xFF) {
-        //     addresses.booting = false;
-        // }
     }
 
     void GBC::dump_stuff() {
-
-        // std::cout << "pc: " << cpu.pc << '\n';
-        // std::cout << "sp: " << cpu.sp << '\n';
-        // std::cout << "booting: " << addresses.booting << '\n';
-
-        // std::cout << "rom bank :" << (int)addresses.rom_bank << '\n';
-
-        // std::cout << "flags: " << std::bitset<8>(cpu.RF) << '\n';
-        // std::cout << "HL: " << std::hex << cpu.getHL() << '\n';
-        // std::cout << "stat: " << std::bitset<8>(addresses.read(0xFF40)) << '\n';
-        // std::cout << "LY: "<< std::bitset<8>(ppu.bus->read(0xFF44)) << std::endl;
-        std::ofstream("log.txt", std::ofstream::app) << "_________\n"
-        << "cycles: " << count << '\n'
+        std::ofstream("log.txt", std::ofstream::app) 
+        << "_________\n"
+        << "cycles: " << cycle_count << '\n'
         << "frame: " << frame << '\n'
         << "pc: " << std::hex << cpu.pc << '\n'
         << "cycles: " << std::hex << (int)cpu.cycles << '\n'
@@ -113,7 +80,6 @@ namespace GBC {
         << "sp: " << std::hex << cpu.sp << '\n'
         << "top of stack: " << std::hex << ((uint16_t)addresses.read(cpu.sp) | 
          ((uint16_t)addresses.read(cpu.sp+1) << 8)) << '\n'
-        
         << "flags: " << std::bitset<8>(cpu.RF) << '\n'
         << "HL: " << std::hex << cpu.getHL() << '\n'
         << "stat: " << std::bitset<8>(addresses.read(STAT)) << '\n'
@@ -123,7 +89,6 @@ namespace GBC {
         << "IF: " << std::hex << (int)addresses.read(IF) << '\n'
         << "IME: " << std::hex << (int)cpu.IME << '\n'
         << "bg tile map: " << std::hex << (addresses.read(LCDC) & (1 << 3) ? 0x9C00 : 0x9800) << '\n'
-
         << std::hex << "dots: " << ppu.dots << '\n'
         << "lines: " << ppu.lines << '\n'
         << "renderX: " << ppu.renderX << '\n';
@@ -143,10 +108,7 @@ namespace GBC {
         }
         std::ofstream("log.txt", std::ofstream::app) << std::endl;
         
-
         std::ofstream("log.txt", std::ofstream::app) << "LY: " << (int)ppu.bus->read(0xFF44) << '\n' << "_________" << std::endl;
-
-
         ppu.dump_info();
         cpu.dump_info();
     }

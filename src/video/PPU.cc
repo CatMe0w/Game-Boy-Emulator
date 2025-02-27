@@ -23,9 +23,9 @@ namespace GBC {
 
     void PPU::execute_cycle() {
         lines %= 154;
-
         
         if ((bus->read(LCDC)&0x80) == 0) return;
+
         bus->IOrange[LY-IO_REGISTERS] = lines;
 
         bus->write(IF, bus->read(IF) & ~(1 << 1));
@@ -35,7 +35,6 @@ namespace GBC {
                 if (mode != OAMscan) {
                     objnum = 0;
                     mode = OAMscan; 
-                    objind = 0;
                     byte objsize = (bus->read(LCDC) & (1 << 2)) ? 16 : 8;
                     
                     for (int16_t i = 0x00; i < 0x9F; i+=4) {
@@ -55,10 +54,6 @@ namespace GBC {
                         if (objnum == 10) break;
                     }
                     std::sort(objbuffer, objbuffer+objnum, [](obj a, obj b){return a.objx < b.objx;});
-
-                    for (int i = 0; i < 10; ++i) {
-                        std::ofstream("log.txt", std::ofstream::app)  << "sortline: " << lines << " i: " << i << " objx: " << objbuffer[i].objx << " objy: " << (int)objbuffer[i].objy <<'\n';
-                    }
                 }
 
                 bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 2 | ((lines == bus->read(LYC)) << 2);  
@@ -69,41 +64,36 @@ namespace GBC {
                     
                 }
                 bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 3 | ((lines == bus->read(LYC)) << 2);
-                
 
                 draw_pixel();
             } else {
                 if (mode != hblank) {
                     mode = hblank;
-                    
+                    renderX = 0;
                 }
                 bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 0 | ((lines == bus->read(LYC)) << 2);
                 if (bus->read(STAT) & (1 << 3)) bus->write(IF, bus->read(IF) | (1 << 1));
-                renderX = 0;
             } 
         } else {
             if (mode != vblank) {
                 mode = vblank;
                 bus->write(IF, bus->read(IF) | 1);
                 SDL_RenderPresent(renderer);
-                
-
             }
+
             bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 1 | ((lines == bus->read(LYC)) << 2);
             if (bus->read(STAT) & (1 << 4)) bus->write(IF, bus->read(IF) | (1 << 1));
         }
-        // bus->lcd_mode = mode;
+        // bus->lcd_mode = mode; TODO, activate this, has been buggy so far
 
         if (bus->read(STAT) & (1 << 6) && (lines == bus->read(LYC))) bus->write(IF, bus->read(IF) | (1 << 1));
-
-
-        
 
         if (dots >= 456) ++lines;
         dots %= 456;
         ++dots;
     }
 
+    // TODO clean this up, and fix it
     void PPU::draw_pixel() {
         byte bgenable = bus->read(LCDC) & 1;
         byte objenable = bus->read(LCDC) & (1 << 1);
@@ -111,8 +101,6 @@ namespace GBC {
 
         byte wx = bus->read(WX),
              wy = bus->read(WY);
-        renderX%=172;
-        
 
         byte winbg = 0;
         byte objpix;
@@ -127,7 +115,6 @@ namespace GBC {
             winbg = 0;
         }
 
-
         byte pixel = 0;
 
         if (objenable) {
@@ -141,18 +128,13 @@ namespace GBC {
             pixel = winbg;
         }
         
-
-
-        // pixel = window;
-        // pixel = windowFIFO();
-        // std::ofstream("log.txt", std::ofstream::app)  << "line: " << lines << " renderX: " << renderX << " col: " << (int)pixel << '\n';
         
         SDL_SetRenderDrawColor(renderer, 220-(255.0/2)*(pixel), 255-(255.0/2)*(pixel), 220-(255.0/2)*(pixel), 255);
-        // SDL_SetRenderDrawColor(renderer, 255-255.0/3*(renderX)/256.0, 255-255.0/3*(renderX)/256.0, 255-255.0/3*(renderX)/256.0, 255);
 
         SDL_RenderPoint(renderer,renderX++-6, lines);     
     }
 
+    // TODO fix issues
     byte PPU::objFIFO() {
         byte tilei = 11;
 
@@ -164,6 +146,7 @@ namespace GBC {
             obj cand_tile = objbuffer[i];
             if (cand_tile.objx <= renderX && cand_tile.objx+8 > renderX && cand_tile.objx >= tilex) tilei = i;
         }
+
         if (tilei == 11) return 0;
 
         obj tile = objbuffer[tilei]; 
@@ -185,18 +168,13 @@ namespace GBC {
 
 
         half tile_address = 0x8000+index*16 + (Yflip ? (objsize-1-(lines-objy))*2 : (lines-objy)*2);
-        // 
 
         byte tilelow = bus->read(tile_address),
             tilehigh = bus->read(tile_address+1);
 
-
         byte sampleobj = (((1 << (Xflip ? (renderX-objx) : 7-(renderX-objx))) & tilelow) != 0) | ((((1 << (Xflip ?  (renderX-objx) : 7-(renderX-objx))) & tilehigh) != 0) << 1);
-
+        
         objectpix = sampleobj | prio | palette;
-
-        // std::ofstream("log.txt", std::ofstream::app) << "objfifo line: " << lines << " renderX: " << renderX << " col: " << (int)objectpix << '\n';
-    
 
         return objectpix; 
     }
@@ -231,12 +209,10 @@ namespace GBC {
         }
 
         byte samplepix = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);
-
         return samplepix;
     }
 
     byte PPU::windowFIFO() {
-
         byte wx = bus->read(WX),
              wy = bus->read(WY);
 
@@ -268,6 +244,19 @@ namespace GBC {
         return samplepix;
     }
 
+    void PPU::render_debug() {
+        for (int i = 0; i < 382; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                byte a = bus->read(0x8000+i*16+j*2), b = bus->read(0x8000+i*16+j*2+1);
+                for (int k = 0; k < 8; ++k) {
+                        int temp = (((1 << (7-k)) & a) != 0) | ((((1 << (7-k)) & b) != 0) << 1);
+                        SDL_SetRenderDrawColor(renderer, 255-255.0/3*(temp), 255-255.0/3*(temp), 255-255.0/3*(temp), 255);
+                        SDL_RenderPoint(renderer, (i%16)*8+k, int(i/16)*8+j);
+                }
+            }
+        }
+    }
+
     void PPU::dump_info() {
         std::cerr << std::hex << "dots: " << dots << '\n';
         std::cerr << "lines: " << lines << '\n';
@@ -289,26 +278,10 @@ namespace GBC {
         std::cerr << std::endl;
     }
 
-
-
-    void PPU::render_debug() {
-        for (int i = 0; i < 382; ++i) {
-            for (int j = 0; j < 8; ++j) {
-                byte a = bus->read(0x8000+i*16+j*2), b = bus->read(0x8000+i*16+j*2+1);
-                for (int k = 0; k < 8; ++k) {
-                        int temp = (((1 << (7-k)) & a) != 0) | ((((1 << (7-k)) & b) != 0) << 1);
-                        SDL_SetRenderDrawColor(renderer, 255-255.0/3*(temp), 255-255.0/3*(temp), 255-255.0/3*(temp), 255);
-                        SDL_RenderPoint(renderer, (i%16)*8+k, int(i/16)*8+j);
-                }
-            }
-        }
-        
-    }
     void PPU::dump_vram() {
         for(int i = 0; i < 0x3FF; ++i) {
             if (i%16 == 0) std::cout << std::endl;
             std::cout << std::hex << (i+0x9900) << ": " << std::bitset<8>(bus->read(i+0x9900) & 0xFF) << " ";
         }
     }
-    
 } 
