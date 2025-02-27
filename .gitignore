@@ -1,0 +1,13 @@
+*.txt
+roms
+*.bin
+*.gb
+CMakeFiles
+CMakeCache.txt
+Makefile
+compile_commands.json
+.cache
+*.cmake
+.DS_Store
+mgbdis
+.vscode
