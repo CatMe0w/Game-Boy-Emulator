@@ -135,6 +135,8 @@ namespace GBC {
         state lcd_mode = hblank;
         byte latch_write = 0;
         byte rtc[4]{0};
+        byte input_d = 0x0F;
+        byte input_s = 0x0F;
 
         bool booting = 0;
         bool latched = 0;
@@ -162,6 +164,8 @@ namespace GBC {
 
         uint8_t read(half address);
         uint8_t read_privledged(half address);
+        uint8_t readIO(half address);
+
     };
 
 

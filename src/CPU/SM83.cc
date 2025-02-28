@@ -18,10 +18,10 @@ namespace GBC {
     }
     
     if (IME && (memory->read(IF) && memory->read(IE))) {
-        if ((memory->read(IF) & 1) && (memory->read(IE) & 0b1)) {
+        if ((memory->read(IF) & 1) && (memory->read(IE) & 1)) {
             IME = 0;
 
-            memory->write(IF, (memory->read(IF) & 1) & ~(1));   
+            memory->write(IF, (memory->read(IF) & 1) & ~(1));
             call_interrupt(0x40);
             return;
         }
@@ -1077,7 +1077,7 @@ namespace GBC {
     // RST Instruction
     
     inline void SM83::instrRST(uint8_t target) {
-        throw std::runtime_error(std::string("WHY AM I HERE!!?!!?!").append(std::to_string(pc)));
+        // throw std::runtime_error(std::string("WHY AM I HERE!!?!!?!").append(std::to_string(pc)));
         memory->write(--sp, static_cast<uint8_t>(pc >> 8));
         memory->write(--sp, static_cast<uint8_t>(pc));
         pc = target;
@@ -1361,16 +1361,18 @@ namespace GBC {
 
     inline void SM83::increment_timer() {
         if (!halted) {
-            ++divcounter;
+            divcounter++;
             if (divcounter == 256) {
-                memory->IOrange[DIV-IO_REGISTERS]++;
                 divcounter = 0;
+                memory->IOrange[DIV-IO_REGISTERS]++;
             }
+            
             divcounter %=256;
         } else {
             divcounter = 0;
+            memory->IOrange[DIV-IO_REGISTERS] = 0;
+
         }
-        
     
         if (tacreg & (1 << 2)) {
             tacreg = memory->read(TAC);

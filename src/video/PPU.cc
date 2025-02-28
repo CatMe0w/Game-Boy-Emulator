@@ -200,11 +200,11 @@ namespace GBC {
             tilehigh = bus->read(tile_index*16+(tiley%8)*2+1+0x8000);
         } else {
             if (tile_index <= 127) {
-                tilelow = bus->read((tiley%8)*2+0x9000+tile_index*16);
-                tilehigh = bus->read((tiley%8)*2+1+0x9000+tile_index*16);
+                tilelow = bus->read((tiley%8)*2+0x9000+(tile_index)*16);
+                tilehigh = bus->read((tiley%8)*2+1+0x9000+(tile_index)*16);
             } else {
-                tilelow = bus->read((tiley%8)*2+0x8800+tile_index*16);
-                tilehigh = bus->read((tiley%8)*2+1+0x8800+tile_index*16);
+                tilelow = bus->read((tiley%8)*2+0x8800+(tile_index)*16);
+                tilehigh = bus->read((tiley%8)*2+1+8800+(tile_index)*16);
             }
         }
 
@@ -223,8 +223,7 @@ namespace GBC {
         byte data_area = (bus->read(LCDC) & (1 << 4));
         
 
-        byte tilex = renderX-wx, tiley = lines-wy;
-
+        byte tilex = renderX-(wx-7), tiley = lines-wy;
         half tile_index_index = (tilex/8)+((tiley)/8)*32;
 
         byte tile_index = bus->read(tile_index_index+w_tile_map);
@@ -235,8 +234,13 @@ namespace GBC {
             tilelow = bus->read(tile_index*16+(tiley%8)*2+0x8000);
             tilehigh = bus->read(tile_index*16+(tiley%8)*2+1+0x8000);
         } else {
-            tilelow = bus->read((tiley%8)*2+0x8800-tile_index*16);
-            tilehigh = bus->read((tiley%8)*2+1+0x8800-tile_index*16);
+            if (tile_index <= 127) {
+                tilelow = bus->read((tiley%8)*2+0x9000+tile_index*16);
+                tilehigh = bus->read((tiley%8)*2+1+0x9000+tile_index*16);
+            } else {
+                tilelow = bus->read((tiley%8)*2+0x8800+tile_index*16);
+                tilehigh = bus->read((tiley%8)*2+1+0x8800+tile_index*16);
+            }
         }
 
         byte samplepix = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);

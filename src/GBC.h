@@ -44,7 +44,8 @@ namespace GBC {
             void execute_cycle();
             void debug_execute_cycle(bool flag);
             void dump_stuff();
-            
+            void handle_input();
+
             address_bus addresses;
 
             SM83 cpu;

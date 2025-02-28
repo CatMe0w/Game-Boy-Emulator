@@ -80,8 +80,9 @@ namespace GBC {
         }
         
         switch (mbc) {
-            case 0x01:
+            case 0x00:
                 return;
+            case 0x01:
             case 0x02:
             case 0x03:
             case 0x04:
@@ -280,7 +281,7 @@ namespace GBC {
         }
     }
     
-    // TODO: Benchmark how slow this is. Might stop using it in static contexts, I'll see how well the compiler optimizes it
+    // TODO: Benchmark how slow this is. Might stop using it in static contexts, I'll see how well the compiler optimizes it. Also probably want to implement mask read/writes
     byte address_bus::read(half address) {
         if (address < 0x0100 && booting) {
             return bootrom[address];
@@ -326,7 +327,7 @@ namespace GBC {
         }
 
         if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
-            return IOrange[address-IO_REGISTERS]; 
+            return readIO(address);
         }
 
         if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
@@ -336,6 +337,23 @@ namespace GBC {
         if (address == IENABLE) return IEnable; 
 
         throw std::runtime_error(std::string("read address not mapped ").append(std::to_string(address)));
+    }
+
+    uint8_t address_bus::readIO(half address) {
+        switch (address) {
+            case JOYP:
+                if ((read_privledged(address) & (3 << 4)) == 0) {
+                    return 0xC0 | (read_privledged(JOYP)&0x30) | (input_s & input_d & 0x0F);
+                } else if ((read_privledged(address) & (1 << 4)) == 0) {
+                    return 0xC0 | (read_privledged(JOYP)&0x30) | (input_d&0x0F);
+                } else if ((read_privledged(address) & (2 << 4)) == 0) {
+                    return 0xC0 | (read_privledged(JOYP)&0x30) | (input_s&0x0F);
+                } else {
+                    return 0x3F;
+                }
+            default:
+                return IOrange[address-IO_REGISTERS]; 
+        }
     }
 
     byte address_bus::read_privledged(half address) {
