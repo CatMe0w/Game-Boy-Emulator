@@ -1,19 +1,41 @@
 #include "PPU.h"
 #include "bus.h"
 #include <algorithm>
-#include <cstdint>
-#include <fstream>
-
-
 
 namespace GBC {
-        void PPU::init_window() {
+    void PPU::init_window() {
         SDL_Init(SDL_INIT_VIDEO);
         SDL_CreateWindowAndRenderer("(GBC) hello window", WINDOW_WIDTH*4, WINDOW_HEIGHT*4, SDL_WINDOW_RESIZABLE, &window, &renderer);
         SDL_SetRenderScale(renderer, 4, 4);
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         SDL_RenderClear(renderer);
     }
+
+    void PPU::init_debug_window() {
+        if (!debug_render) {
+            debug_render = true;
+        SDL_Init(SDL_INIT_VIDEO);
+        SDL_CreateWindowAndRenderer("(GBC) hello tile window", 128*4, 192*4, SDL_WINDOW_RESIZABLE, &debug_tile_window, &debug_tile_renderer);
+        SDL_SetRenderScale(debug_tile_renderer, 4, 4);
+        SDL_SetRenderDrawColor(debug_tile_renderer, 255, 255, 255, 255);
+        SDL_RenderClear(debug_tile_renderer);
+        SDL_Init(SDL_INIT_VIDEO);
+        SDL_CreateWindowAndRenderer("(GBC) hello background window", 256*2, 256*2, SDL_WINDOW_RESIZABLE, &debug_bg_window, &debug_bg_renderer);
+        SDL_SetRenderScale(debug_bg_renderer, 2, 2);
+        SDL_SetRenderDrawColor(debug_bg_renderer, 255, 255, 255, 255);
+        SDL_RenderClear(debug_bg_renderer);
+        SDL_CreateWindowAndRenderer("(GBC) hello window window", WINDOW_WIDTH*4, WINDOW_HEIGHT*4, SDL_WINDOW_RESIZABLE, &debug_window_window, &debug_window_renderer);
+        SDL_SetRenderScale(debug_window_renderer, 4, 4);
+        SDL_SetRenderDrawColor(debug_window_renderer, 255, 255, 255, 255);
+        SDL_RenderClear(debug_window_renderer);
+        SDL_Init(SDL_INIT_VIDEO);
+        SDL_CreateWindowAndRenderer("(GBC) hello object window", WINDOW_WIDTH*4, WINDOW_HEIGHT*4, SDL_WINDOW_RESIZABLE, &debug_object_window, &debug_object_renderer);
+        SDL_SetRenderScale(debug_object_renderer, 4, 4);
+        SDL_SetRenderDrawColor(debug_object_renderer, 255, 255, 255, 255);
+        SDL_RenderClear(debug_object_renderer);
+        }
+    }
+
 
     PPU::~PPU() {
         SDL_DestroyRenderer(renderer);
@@ -22,13 +44,17 @@ namespace GBC {
     }
 
     void PPU::execute_cycle() {
+        if (dots >= 456) ++lines;
+        dots %= 456;
         lines %= 154;
-        
-        if ((bus->read(LCDC)&0x80) == 0) return;
 
-        bus->IOrange[LY-IO_REGISTERS] = lines;
-
+        if ((bus->read(LCDC)&0x80) == 0) {
+            bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 0 | ((lines == bus->read(LYC)) << 2); 
+            return;
+        }
         bus->write(IF, bus->read(IF) & ~(1 << 1));
+        bus->IOrange[LY-IO_REGISTERS] = lines;
+        if (bus->read(STAT) & (1 << 6) && (lines == bus->read(LYC))) bus->write(IF, bus->read(IF) | (1 << 1));
 
         if (lines < 144) {
             if ((dots%456) < 80) {
@@ -39,7 +65,7 @@ namespace GBC {
                     
                     for (int16_t i = 0x00; i < 0x9F; i+=4) {
                         byte objy = bus->read(0xFE00+i)-16,
-                        objx = bus->read(0xFE00+i+1)-1,
+                        objx = bus->read(0xFE00+i+1),
                         index = bus->read(0xFE00+i+2),
                         flags = bus->read(0xFE00+i+3); 
                         if (objy <= lines && objy+objsize > lines) {
@@ -57,11 +83,12 @@ namespace GBC {
                 }
 
                 bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 2 | ((lines == bus->read(LYC)) << 2);  
-                if (bus->read(STAT) & (1 << 5)) bus->write(IF, bus->read(IF) | (1 << 1));
+                if (bus->read(STAT) & (1 << 5)) bus->write(IF, bus->read(IF) | (1 << 1)); // TODO extract into function
             } else if ((dots%456) < 252) {
                 if (mode != draw) {
                     mode = draw;
-                    
+                    wlyenabled = false;
+                    debug_callback = true;
                 }
                 bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 3 | ((lines == bus->read(LYC)) << 2);
 
@@ -70,6 +97,9 @@ namespace GBC {
                 if (mode != hblank) {
                     mode = hblank;
                     renderX = 0;
+                    if (wlyenabled) {
+                        ++wly;
+                    }
                 }
                 bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 0 | ((lines == bus->read(LYC)) << 2);
                 if (bus->read(STAT) & (1 << 3)) bus->write(IF, bus->read(IF) | (1 << 1));
@@ -77,6 +107,7 @@ namespace GBC {
         } else {
             if (mode != vblank) {
                 mode = vblank;
+                wly = 0;
                 bus->write(IF, bus->read(IF) | 1);
                 SDL_RenderPresent(renderer);
             }
@@ -86,144 +117,151 @@ namespace GBC {
         }
         // bus->lcd_mode = mode; TODO, activate this, has been buggy so far
 
-        if (bus->read(STAT) & (1 << 6) && (lines == bus->read(LYC))) bus->write(IF, bus->read(IF) | (1 << 1));
 
-        if (dots >= 456) ++lines;
-        dots %= 456;
+        
         ++dots;
+
     }
 
     // TODO clean this up, and fix it
     void PPU::draw_pixel() {
-        byte bgenable = bus->read(LCDC) & 1;
-        byte objenable = bus->read(LCDC) & (1 << 1);
-        byte windowenable = bus->read(LCDC) & (1 << 5);
+        byte bgenable = bus->read(LCDC) & 1,
+             objenable = bus->read(LCDC) & (1 << 1),
+             windowenable = bus->read(LCDC) & (1 << 5);
 
         byte wx = bus->read(WX),
-             wy = bus->read(WY);
+             wy = bus->read(WY),
+             scx = bus->read(SCX),
+             scy = bus->read(SCY);
 
-        byte winbg = 0;
-        byte objpix;
+        if (windowenable && bgenable && !wlyenabled && ((renderX+1 >= wx) && (lines >= wy))) {
+            wlyenabled = true;
+        }
+        
+        half bg_tilex = (scx+renderX-6)%256, bg_tiley = (scy+lines)%256,
+             window_tilex = renderX-wx+1, window_tiley = wly; 
+
+        byte objpix = objFIFO(), 
+             winpix = windowFIFO(window_tilex, window_tiley),
+             bgpix = bgFIFO(bg_tilex, bg_tiley),
+             winbg = 0, 
+             pixel = 0,
+             choice = 0;
+
 
         if (bgenable) {
-            if (windowenable && (((renderX+7 >= wx) && (lines >= wy)))){
-                winbg = windowFIFO();
+            if (windowenable && ((renderX+1 >= wx) && (lines >= wy))){
+                winbg = (bus->read(BGP) >> (winpix*2))&0x3;
             } else {
-                winbg = bgFIFO();
-            }
+                winbg = (bus->read(BGP) >> (bgpix*2))&0x3;
+            }   
         } else {
             winbg = 0;
         }
 
-        byte pixel = 0;
-
         if (objenable) {
-            objpix = objFIFO();
-            if ((objpix > 64 || objpix == 0)) {
+            if ((objpix == 0 || (objpix & 0x80)) && (winbg != 0)) {
                 pixel = winbg;
             } else {
-                pixel = objpix;
+                pixel = (((objpix >> 4) & 1) ? bus->read(OBP0) : bus->read(OBP0)) >> ((objpix&03) * 2) & 0x3 ;
             }
         } else {
             pixel = winbg;
         }
-        
-        
-        SDL_SetRenderDrawColor(renderer, 220-(255.0/2)*(pixel), 255-(255.0/2)*(pixel), 220-(255.0/2)*(pixel), 255);
 
-        SDL_RenderPoint(renderer,renderX++-6, lines);     
+        if (debug_render) {
+            objpix = (((objpix >> 4) & 1 ? bus->read(OBP0) : bus->read(OBP0)) >> ((objpix&03) * 2)) & 0x3;
+            SDL_SetRenderDrawColor(debug_object_renderer, 220-(255.0/3)*(objpix), 255-(255.0/3)*(objpix), 220-(255.0/3)*(objpix), 255);
+            SDL_RenderPoint(debug_object_renderer,renderX-6, lines);    
+
+            winbg = (bus->read(BGP) >> (winpix*2))&0x3;
+            SDL_SetRenderDrawColor(debug_window_renderer, 220-(255.0/3)*(winbg), 255-(255.0/3)*(winbg), 220-(255.0/3)*(winbg), 255);
+            SDL_RenderPoint(debug_window_renderer,renderX-6, lines);    
+        }
+        
+        
+        SDL_SetRenderDrawColor(renderer, 255-(255.0/3)*(pixel), 255-(255.0/3)*(pixel), 255-(255.0/3)*(pixel), 255);
+        SDL_RenderPoint(renderer,renderX++-6, lines);   
     }
 
     // TODO fix issues
-    byte PPU::objFIFO() {
-        byte tilei = 11;
-
-        byte objectpix = 0;
+    inline byte PPU::objFIFO() {
+        byte tilei = 255;
         byte objsize = (bus->read(LCDC) & (1 << 2)) ? 16 : 8;
         
         uint8_t tilex = 0;
-        for (int i = 0; i < objnum; ++i) {
+
+        for (int i = (int)objnum-1; i >= 0; --i) {
             obj cand_tile = objbuffer[i];
-            if (cand_tile.objx <= renderX && cand_tile.objx+8 > renderX && cand_tile.objx >= tilex) tilei = i;
+
+            if (cand_tile.objx-2 <= renderX && 
+                cand_tile.objx+6 > renderX) 
+                tilei = i;
         }
 
-        if (tilei == 11) return 0;
+        if (tilei == 255) return 0;
 
         obj tile = objbuffer[tilei]; 
 
         byte objy = tile.objy,
-            objx = tile.objx,
-            flags = tile.flags,
-            index = tile.index;
+             objx = tile.objx-2,
+             flags = tile.flags,
+             index = tile.index;
         
 
         if (objsize == 16) {
             index = (index & 0xFE);
         }
         
-        bool palette = flags & (1 << 4),
-                Xflip = flags & (1 << 5),
-                Yflip = flags & (1 << 6),
-                prio = flags & (1 << 7);
+        byte palette = flags & (1 << 4),
+             Xflip = flags & (1 << 5),
+             Yflip = flags & (1 << 6),
+             prio = flags & (1 << 7);
 
 
-        half tile_address = 0x8000+index*16 + (Yflip ? (objsize-1-(lines-objy))*2 : (lines-objy)*2);
+        half tile_address = 0x8000+index*16 + (Yflip ? (objsize-1-(lines-objy))*2 : (lines-objy)*2); // TODO extract into function, maybe?
 
         byte tilelow = bus->read(tile_address),
             tilehigh = bus->read(tile_address+1);
 
-        byte sampleobj = (((1 << (Xflip ? (renderX-objx) : 7-(renderX-objx))) & tilelow) != 0) | ((((1 << (Xflip ?  (renderX-objx) : 7-(renderX-objx))) & tilehigh) != 0) << 1);
-        
-        objectpix = sampleobj | prio | palette;
+        byte object_pixel = (((1 << (Xflip ? (renderX-objx) : 7-(renderX-objx))) & tilelow) != 0) | ((((1 << (Xflip ?  (renderX-objx) : 7-(renderX-objx))) & tilehigh) != 0) << 1);
 
-        return objectpix; 
+        byte object_pixel_with_flags = object_pixel | prio | palette;
+        return object_pixel_with_flags; 
     }
 
-    byte PPU::bgFIFO() {
+    inline byte PPU::bgFIFO(half tilex, half tiley) {
         byte bgenable = bus->read(LCDC) & 1;
 
         half BG_tile_map = (bus->read(LCDC) & (1 << 3)) ? 0x9C00 : 0x9800;
         byte data_area = (bus->read(LCDC) & (1 << 4));
 
-        byte scx = bus->read(SCX),
-             scy = bus->read(SCY);
+        
+        half tile_index_index = (tilex/8)+((tiley)/8)*32 + BG_tile_map;
 
-        half tilex = (scx+renderX-7)%256, tiley = (scy+lines)%256;
-        half tile_index_index = (tilex/8)+((tiley)/8)*32;
-
-        byte tile_index = bus->read(tile_index_index+BG_tile_map);
+        byte tile_index = bus->read(tile_index_index);
 
         byte tilelow, tilehigh;
 
-        if (data_area) {
+        if (data_area != 0) {
             tilelow = bus->read(tile_index*16+(tiley%8)*2+0x8000);
             tilehigh = bus->read(tile_index*16+(tiley%8)*2+1+0x8000);
         } else {
-            if (tile_index <= 127) {
-                tilelow = bus->read((tiley%8)*2+0x9000+(tile_index)*16);
-                tilehigh = bus->read((tiley%8)*2+1+0x9000+(tile_index)*16);
-            } else {
-                tilelow = bus->read((tiley%8)*2+0x8800+(tile_index)*16);
-                tilehigh = bus->read((tiley%8)*2+1+8800+(tile_index)*16);
-            }
+
+            tilelow = bus->read((tiley%8)*2+0x9000+((int8_t)tile_index)*16);
+            tilehigh = bus->read((tiley%8)*2+1+0x9000+((int8_t)tile_index)*16);
         }
 
-        byte samplepix = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);
-        return samplepix;
+        byte final_pixel = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);
+        return final_pixel;
     }
 
-    byte PPU::windowFIFO() {
-        byte wx = bus->read(WX),
-             wy = bus->read(WY);
-
-        if ((renderX < wx-7) || (lines < wy)) return 0;
+    inline byte PPU::windowFIFO(half tilex, half tiley) {
         byte windowEnable = (bus->read(LCDC) & (1 << 5));
 
         half w_tile_map = (bus->read(LCDC) & (1 << 6)) ? 0x9C00 : 0x9800;  
         byte data_area = (bus->read(LCDC) & (1 << 4));
-        
 
-        byte tilex = renderX-(wx-7), tiley = lines-wy;
         half tile_index_index = (tilex/8)+((tiley)/8)*32;
 
         byte tile_index = bus->read(tile_index_index+w_tile_map);
@@ -238,31 +276,55 @@ namespace GBC {
                 tilelow = bus->read((tiley%8)*2+0x9000+tile_index*16);
                 tilehigh = bus->read((tiley%8)*2+1+0x9000+tile_index*16);
             } else {
-                tilelow = bus->read((tiley%8)*2+0x8800+tile_index*16);
-                tilehigh = bus->read((tiley%8)*2+1+0x8800+tile_index*16);
+                tilelow = bus->read((tiley%8)*2+0x9000+((int8_t)tile_index)*16);
+                tilehigh = bus->read((tiley%8)*2+1+0x9000+((int8_t)tile_index)*16);
             }
         }
 
-        byte samplepix = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);
+        byte final_pixel = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);
 
-        return samplepix;
+        return final_pixel; 
     }
 
     void PPU::render_debug() {
+        if (!debug_render) 
+            init_debug_window();
         for (int i = 0; i < 382; ++i) {
             for (int j = 0; j < 8; ++j) {
                 byte a = bus->read(0x8000+i*16+j*2), b = bus->read(0x8000+i*16+j*2+1);
                 for (int k = 0; k < 8; ++k) {
-                        int temp = (((1 << (7-k)) & a) != 0) | ((((1 << (7-k)) & b) != 0) << 1);
-                        SDL_SetRenderDrawColor(renderer, 255-255.0/3*(temp), 255-255.0/3*(temp), 255-255.0/3*(temp), 255);
-                        SDL_RenderPoint(renderer, (i%16)*8+k, int(i/16)*8+j);
+                    int temp = (((1 << (7-k)) & a) != 0) | ((((1 << (7-k)) & b) != 0) << 1);
+                    SDL_SetRenderDrawColor(debug_tile_renderer, 255-255.0/3*(temp), 255-255.0/3*(temp), 255-255.0/3*(temp), 255);
+                    SDL_RenderPoint(debug_tile_renderer, (i%16)*8+k, int(i/16)*8+j);
                 }
             }
         }
+        SDL_RenderPresent(debug_tile_renderer);  
+
+        byte wx = bus->read(WX),
+             wy = bus->read(WY),
+             scx = bus->read(SCX),
+             scy = bus->read(SCY);
+
+        for (int i = 0; i < 256; ++i) {
+            for (int j = 0; j < 256; ++j) {
+                half bg_tilex = (scx+i-6)%256, bg_tiley = (scy+j)%256;
+                int temp = bgFIFO(bg_tilex, bg_tiley);
+                SDL_SetRenderDrawColor(debug_bg_renderer, 255-255.0/3*(temp), 255-255.0/3*(temp), 255-255.0/3*(temp), 255);
+                SDL_RenderPoint(debug_bg_renderer, i, j);
+            }
+        }
+
+
+
+        SDL_RenderPresent(debug_object_renderer); 
+        SDL_RenderPresent(debug_window_renderer);        
+        SDL_RenderPresent(debug_bg_renderer);        
+
     }
 
     void PPU::dump_info() {
-        std::cerr << std::hex << "dots: " << dots << '\n';
+        std::cerr << std::hex <<    "dots: " << dots << '\n';
         std::cerr << "lines: " << lines << '\n';
         std::cerr << "renderX: " << renderX << '\n';
         switch(mode) { 

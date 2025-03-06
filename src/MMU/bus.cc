@@ -10,7 +10,7 @@ namespace GBC {
         memset(workRAM, 0, sizeof(workRAM));
         memset(OAM, 0, sizeof(OAM));
         memset(IOrange, 0, sizeof(IOrange));    
-        IOrange[JOYP-IO_REGISTERS] = 0x0F;
+        IOrange[JOYP-IO_REGISTERS] = 0x3F;
     }
 
     void address_bus::load_boot_ROM(const char* fname, uint32_t size) {
@@ -35,6 +35,134 @@ namespace GBC {
         }
         mbc = cartROM[0x147];
         std::ofstream("log.txt", std::ofstream::app) << "mbc: " << std::hex << (int)mbc << '\n';
+    }
+    
+    // TODO: Benchmark how slow this is. Might stop using it in static contexts, I'll see how well the compiler optimizes it. Also probably want to implement mask read/writes
+    byte address_bus::read(half address) {
+        if (address < 0x0100 && booting) {
+            return bootrom[address];
+        }
+
+        if (address <= END_ROM_BANK_00) {
+            return cartROM[address];
+        }
+
+        if (address >= ROM_BANK_NN && address <= END_ROM_BANK_NN) {
+            return cartROM[address+16*KB*(rom_bank & 0x7F)-ROM_BANK_NN];
+        }
+
+        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
+            if (lcd_mode == draw) return 0xFF;
+            return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
+        }
+
+        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
+            return cartRAM[address&0x1FF];
+        }
+          
+        if (address >= ECHO_RAM1 && address <= EECHO_RAM2) {
+            address-=0x2000;
+        }
+
+        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
+            return workRAM[address-WORK_RAM_BANK0];
+        }
+
+        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
+            return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN]; 
+        }
+
+        if (address >= OAMaddress && address <= END_OAM) {
+            if (lcd_mode == draw || lcd_mode == OAMscan) return 0xFF;
+            return OAM[address-OAMaddress];
+        }
+
+        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
+            return readIO(address);
+        }
+
+        if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
+            return HRAM[address-HIGH_RAM];
+        }
+
+        if (address >= NOT_USUABLE && address <= END_NOT_USUABLE) {
+            return 0x00;
+        }
+
+        if (address == IE) return IEnable; 
+
+        throw std::runtime_error(std::string("read address not mapped ").append(std::to_string(address)));
+    }
+
+    uint8_t address_bus::readIO(half address) {
+        switch (address) {
+            case JOYP:
+                if ((read_privledged(address) & (3 << 4)) == 0) {
+                    return  (read_privledged(JOYP)&0x30) | (input_s & input_d & 0x0F);
+                } else if ((read_privledged(address) & (1 << 4)) == 0) {
+                    return  (read_privledged(JOYP)&0x30) | (input_d&0x0F);
+                } else if ((read_privledged(address) & (2 << 4)) == 0) {
+                    return (read_privledged(JOYP)&0x30) | (input_s&0x0F);
+                } else {
+                    return 0x3F;
+                }
+            default:
+                return IOrange[address-IO_REGISTERS]; 
+        }
+    }
+
+    byte address_bus::read_privledged(half address) {
+        if (address < 0x0100 && booting) {
+            return bootrom[address];
+        }
+
+        if (address <= END_ROM_BANK_00) 
+            return cartROM[address];
+
+        if (address >= ROM_BANK_NN && address <= END_ROM_BANK_NN) {
+            return cartROM[address+16*KB*(rom_bank & 0x7F)-ROM_BANK_NN];
+        }
+
+        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
+            return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
+        }
+
+        // if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
+        //     return cartRAM[address&0x1FF];
+        // }
+          
+
+        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
+            return workRAM[address-WORK_RAM_BANK0];
+        }
+
+        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
+            return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN]; 
+        }
+        
+        if (address >= ECHO_RAM1 && address <= EECHO_RAM1) {
+            return workRAM[address-ECHO_RAM1];
+        }
+
+        if (address >= ECHO_RAM2 && address <= EECHO_RAM2) {
+            return workRAM[address+wram_bank*4*KB-ECHO_RAM2];
+        }
+
+        if (address >= OAMaddress && address <= END_OAM) {
+            return OAM[address-OAMaddress]; 
+        }
+
+        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
+            return IOrange[address-IO_REGISTERS]; 
+        }
+
+        if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
+            return HRAM[address-HIGH_RAM];
+        }
+
+        if (address == IE) return IEnable; 
+
+        throw std::runtime_error(std::string("read PRIVLEDGED address not mapped ").append(std::to_string(address)));
     }
 
     void address_bus::write(half address, byte value) {
@@ -63,6 +191,12 @@ namespace GBC {
             OAM[address-OAMaddress] = value;
             return;
         }
+        
+        if (address >= EXTERNAL_RAM && address <= END_EXTERNAL_RAM) {
+            if (RAMenable) 
+               cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM] = value;
+            return;
+        }
 
         if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
             writeIO(address, value);
@@ -74,11 +208,12 @@ namespace GBC {
             return;
         }
 
-        if (address == IENABLE) {
+        if (address == IE) {
             IEnable = value;
             return;
         }
-        
+
+        return;
         switch (mbc) {
             case 0x00:
                 return;
@@ -114,39 +249,6 @@ namespace GBC {
     }
 
 
-    void address_bus::writeMBC3(half address, byte value) {
-        if (address >= ROM_BANK_00 && address <= 0x1FFF) {
-            if (value == 0xA) {
-                RAMenable = 1;
-            } else {
-                RAMenable = 0;
-            }
-            return;
-        }
-
-        if (address <= 0x3FFF) {
-            debug = true;
-            debug_value = value;
-            rom_bank = std::max(1,(value & 0x7F));
-            return;
-        }
-
-        if (address <= 0x5FFF) {
-            eram_bank = value;
-            return;
-        }
-        if (address <= 0x7fff) {
-            return;
-        }
-
-        if (address >= EXTERNAL_RAM && address <= END_EXTERNAL_RAM) {
-            if (RAMenable) 
-               cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM] = value;
-            return;
-        }
-
-        throw std::runtime_error(std::string("write address not mapped ").append(std::to_string(address)));
-    }
 
     void address_bus::writeIO(half address, byte val) {
         switch(address) {
@@ -260,10 +362,10 @@ namespace GBC {
             case BGP: // 0xFF47
                 IOrange[address-IO_REGISTERS] = val;
                 return;
-            case OBP1: // 0xFF48
+            case OBP0: // 0xFF48
                 IOrange[address-IO_REGISTERS] = val;
                 return;
-            case OBP2: // 0xFF49
+            case OBP1: // 0xFF49
                 IOrange[address-IO_REGISTERS] = val;
                 return;
             case WY: // 0xFF4A
@@ -280,133 +382,69 @@ namespace GBC {
                 std::ofstream("log.txt", std::ofstream::app) << "unsupported IO write: " << std::hex << address << std::endl;   
         }
     }
-    
-    // TODO: Benchmark how slow this is. Might stop using it in static contexts, I'll see how well the compiler optimizes it. Also probably want to implement mask read/writes
-    byte address_bus::read(half address) {
-        if (address < 0x0100 && booting) {
-            return bootrom[address];
+
+    void address_bus::writeMBC1(half address, byte value) {
+        if (address >= ROM_BANK_00 && address <= 0x1FFF) {
+            if (value == 0xA) {
+                RAMenable = 1;
+            } else {
+                RAMenable = 0;
+            }
+            return;
         }
 
-        if (address <= END_ROM_BANK_00) {
-            return cartROM[address];
+        if (address <= 0x3FFF) {
+            rom_bank = std::max(1,(value & 0x1F));
+            return;
         }
 
-        if (address >= ROM_BANK_NN && address <= END_ROM_BANK_NN) {
-            return cartROM[address+16*KB*(rom_bank & 0x7F)-ROM_BANK_NN];
+        if (address <= 0x5FFF) {
+        if (bank_mode & 1) {
+            rom_bank |= value & 0x60;
+        }
+            return;
         }
 
-        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
-            if (lcd_mode == draw) return 0xFF;
-            return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
+        if (address <= 0x7fff) {
+            // TODO
+
+            return;
         }
 
-        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
-            return cartRAM[address&0x1FF];
-        }
-          
 
-        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
-            return workRAM[address-WORK_RAM_BANK0];
-        }
-
-        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
-            return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN]; 
-        }
-        
-        if (address >= ECHO_RAM1 && address <= EECHO_RAM1) {
-            return workRAM[address-ECHO_RAM1];
-        }
-
-        if (address >= ECHO_RAM2 && address <= EECHO_RAM2) {
-            return workRAM[address+wram_bank*4*KB-ECHO_RAM2];
-        }
-
-        if (address >= OAMaddress && address <= END_OAM) {
-            if (lcd_mode == draw || lcd_mode == OAMscan) return 0xFF;
-            return OAM[address-OAMaddress];
-        }
-
-        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
-            return readIO(address);
-        }
-
-        if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
-            return HRAM[address-HIGH_RAM];
-        }
-
-        if (address == IENABLE) return IEnable; 
-
-        throw std::runtime_error(std::string("read address not mapped ").append(std::to_string(address)));
+        // throw std::runtime_error(std::string("write address not mapped ").append(std::to_string(address)));
     }
 
-    uint8_t address_bus::readIO(half address) {
-        switch (address) {
-            case JOYP:
-                if ((read_privledged(address) & (3 << 4)) == 0) {
-                    return 0xC0 | (read_privledged(JOYP)&0x30) | (input_s & input_d & 0x0F);
-                } else if ((read_privledged(address) & (1 << 4)) == 0) {
-                    return 0xC0 | (read_privledged(JOYP)&0x30) | (input_d&0x0F);
-                } else if ((read_privledged(address) & (2 << 4)) == 0) {
-                    return 0xC0 | (read_privledged(JOYP)&0x30) | (input_s&0x0F);
-                } else {
-                    return 0x3F;
-                }
-            default:
-                return IOrange[address-IO_REGISTERS]; 
+    void address_bus::writeMBC3(half address, byte value) {
+        if (address >= ROM_BANK_00 && address <= 0x1FFF) {
+            if (value == 0xA) {
+                RAMenable = 1;
+            } else {
+                RAMenable = 0;
+            }
+            return;
         }
+
+        if (address <= 0x3FFF) {
+            rom_bank = std::max(1,(value & 0x7F));
+            return;
+        }
+
+        if (address <= 0x5FFF) {
+            eram_bank = value;
+            return;
+        }
+        if (address <= 0x7fff) {
+            return;
+        }
+
+        if (address >= EXTERNAL_RAM && address <= END_EXTERNAL_RAM) {
+            if (RAMenable) 
+               cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM] = value;
+            return;
+        }
+
+        throw std::runtime_error(std::string("write address not mapped ").append(std::to_string(address)));
     }
 
-    byte address_bus::read_privledged(half address) {
-        if (address < 0x0100 && booting) {
-            return bootrom[address];
-        }
-
-        if (address <= END_ROM_BANK_00) 
-            return cartROM[address];
-
-        if (address >= ROM_BANK_NN && address <= END_ROM_BANK_NN) {
-            return cartROM[address+16*KB*(rom_bank & 0x7F)-ROM_BANK_NN];
-        }
-
-        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
-            return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
-        }
-
-        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
-            return cartRAM[address&0x1FF];
-        }
-          
-
-        if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
-            return workRAM[address-WORK_RAM_BANK0];
-        }
-
-        if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
-            return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN]; 
-        }
-        
-        if (address >= ECHO_RAM1 && address <= EECHO_RAM1) {
-            return workRAM[address-ECHO_RAM1];
-        }
-
-        if (address >= ECHO_RAM2 && address <= EECHO_RAM2) {
-            return workRAM[address+wram_bank*4*KB-ECHO_RAM2];
-        }
-
-        if (address >= OAMaddress && address <= END_OAM) {
-            return OAM[address-OAMaddress]; 
-        }
-
-        if (address >= IO_REGISTERS && address <= END_IO_REGISTERS) {
-            return IOrange[address-IO_REGISTERS]; 
-        }
-
-        if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
-            return HRAM[address-HIGH_RAM];
-        }
-
-        if (address == IENABLE) return IEnable; 
-
-        throw std::runtime_error(std::string("read PRIVLEDGED address not mapped ").append(std::to_string(address)));
-    }
 }

@@ -2,7 +2,7 @@
 
 #include "../MMU/bus.h"
 #include "timer.h"
-#include <iostream>
+
 
 #define RA r8[7]
 #define RB r8[0]
@@ -13,31 +13,22 @@
 #define R6 r8[6]
 #define RH r8[4]
 #define RL r8[5]
-#define IF 0xFF0F
-
-#define WavePatternRAM 0xFF30 
-// ends at FF3F 
-
-
-#define KB 1024
-
 
 namespace GBC {
+    constexpr uint32_t SINGLE_TIME_MHZ = 4194304;
     class SM83 {
         public:
         SM83(address_bus *memory) : memory(memory) { memset(r8, 0, 8); }
 
         address_bus *memory;
 
-        bool IME = false, IMEdelay = false, halted = false, stathigh = false;
-
         byte r8[8];
-        uint8_t cycles = 0;
 
+        uint32_t divcounter = 0, timacounter = 0, timareg, tacreg; // TODO probably should maybe make these have underscores
         uint16_t pc = 0, sp = 0xFFFE;
-
-        uint32_t MHZ = 4194304;
-        uint32_t divcounter = 0, timacounter = 0, timareg, tacreg;
+        uint16_t opcode = 0;
+        uint8_t cycles = 0;
+        bool IME = false, IMEdelay = false, halted = false, stathigh = false;
 
         void execute();
         inline void executeCB();

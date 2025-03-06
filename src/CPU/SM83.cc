@@ -1,23 +1,25 @@
 #include "SM83.h"
 #include "bus.h"
 #include "cycles.h"
-#include <cstdint>
-#include <fstream>
-#include <ios>
-#include <stdexcept>
-#include <bitset>
 
 namespace GBC {
+
     void SM83::execute() {
     increment_timer();
-    if (--cycles > 0) return;    
+    if ((memory->read(IF) & memory->read(IE)) != 0) halted = false;
+    if (halted) return;
+
+    if (cycles > 0) {
+        --cycles;
+        return;    
+    }
     
     if (pc > 0xFF && memory->booting) {
         memory->booting = false;
         dump_registers();
     }
     
-    if (IME && (memory->read(IF) && memory->read(IE))) {
+    if (IME && (memory->read(IF) & memory->read(IE))) {
         if ((memory->read(IF) & 1) && (memory->read(IE) & 1)) {
             IME = 0;
 
@@ -60,7 +62,7 @@ namespace GBC {
         IMEdelay = false;
     }
     
-    uint8_t opcode = fetch8();
+    opcode = fetch8();
     cycles += opcode_cycles[opcode];
 
     if (opcode <= 0x3F)
@@ -498,6 +500,7 @@ namespace GBC {
         // Fetch the next byte which is the actual CB opcode.
         uint8_t cbOpcode = fetch8();
         cycles += opcode_cycles_cb[cbOpcode];
+        opcode = (opcode << 8) +  cbOpcode;
         // Decode based on the top two bits.
         switch (cbOpcode >> 6) {
             case 0: // Rotate and swap instructions.
@@ -1248,13 +1251,13 @@ namespace GBC {
             setZeroFlag((RA == 0) && !getCarryFlag() && !getHalfCarryFlag());
             return;
         }
-
+        
         if (getHalfCarryFlag() && ((RA & 0xF) < 10)) {
             RA = ((RA & 0xF) + 6) % 10;
         } else {
             RA = (RA & 0xF) % 10;
         }
-
+        
         if (getCarryFlag() && ((temp >> 4) < 10)) {
             RA |= (((temp >> 4) % 10) + (temp & 0xF) / 10 + 6) << 4;
         } else {
@@ -1357,6 +1360,7 @@ namespace GBC {
         memory->write(--sp, static_cast<uint8_t>(pc >> 8));
         memory->write(--sp, static_cast<uint8_t>(pc));
         pc = handler;
+        cycles += 20;
     }
 
     inline void SM83::increment_timer() {
@@ -1367,11 +1371,10 @@ namespace GBC {
                 memory->IOrange[DIV-IO_REGISTERS]++;
             }
             
-            divcounter %=256;
+            divcounter %= 256;
         } else {
             divcounter = 0;
             memory->IOrange[DIV-IO_REGISTERS] = 0;
-
         }
     
         if (tacreg & (1 << 2)) {
@@ -1399,15 +1402,15 @@ namespace GBC {
     }
 
     void SM83::dump_registers() {
-        std::ofstream("log.txt", std::ofstream::app) << "rA: " << (int)RA << " ";
-        std::ofstream("log.txt", std::ofstream::app) << "rB: " << (int)RB << " ";
-        std::ofstream("log.txt", std::ofstream::app) << "rC: " << (int)RC << " ";
-        std::ofstream("log.txt", std::ofstream::app) << "rD: " << (int)RD << '\n';
-    
-        std::ofstream("log.txt", std::ofstream::app) << "rE: " << (int)RE << " ";
-        std::ofstream("log.txt", std::ofstream::app) << "rF: " << (int)RF << " ";
-        std::ofstream("log.txt", std::ofstream::app) << "rH: " << (int)RH << " ";
-        std::ofstream("log.txt", std::ofstream::app) << "rH: " << (int)RL << '\n';
+        std::ofstream("log.txt", std::ofstream::app) 
+        << "rA: " << (int)RA << " "
+        << "rB: " << (int)RB << " "
+        << "rC: " << (int)RC << " "
+        << "rD: " << (int)RD << '\n'
+        << "rE: " << (int)RE << " "
+        << "rF: " << (int)RF << " "
+        << "rH: " << (int)RH << " "
+        << "rL: " << (int)RL << '\n';
     }
 
     void SM83::dump_info() {

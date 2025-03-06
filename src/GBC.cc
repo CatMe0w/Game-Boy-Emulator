@@ -1,9 +1,6 @@
 #include "GBC.h"
 #include "bus.h"
-#include <exception>
-#include <filesystem>
-#include <fstream>
-#include <stdexcept>
+#include "cycles.h"
 
 namespace GBC {
     GBC::GBC() : cpu(&addresses), ppu(&addresses) {
@@ -13,6 +10,7 @@ namespace GBC {
 
     void GBC::start() {
         ppu.init_window();
+
         addresses.booting = false;
         addresses.IOrange[JOYP-IO_REGISTERS] = 0xFF;
     }
@@ -41,26 +39,27 @@ namespace GBC {
                 debug_execute_cycle(0);
 
                 if (ppu.mode == vblank) {
-                    for (int j = 0; j < 4560; ++j) {
-                        debug_execute_cycle(0);
-                    }
+
                     break;
                 }
             } 
 
             while (SDL_PollEvent(&ppu.event)) {
-                byte input_s = 0, input_d = 0;
-                if (ppu.event.type == SDL_EVENT_QUIT) breakflag = 1;
+                if (ppu.event.type == SDL_EVENT_QUIT) breakflag = true;
+            }   
+
+            // ppu.render_debug();
+
+            for (int j = 0; j < 4560; ++j) {
+                debug_execute_cycle(0);
             }
 
-            handle_input();
-
             if (breakflag) break;
-            std::this_thread::sleep_for(16ms); // TODO make sleep based on elapsed frame execution time
+            // std::this_thread::sleep_for(16ms); // TODO make sleep based on elapsed frame execution time
         }
     }
 
-    void GBC::handle_input() {
+    inline void GBC::handle_input() {
         byte input_s = 0xF0, input_d = 0xF0;
 
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_A]) {
@@ -70,10 +69,10 @@ namespace GBC {
             input_s |= (1 << 1);
         }
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_Z]) {
-            input_s |= (1 << 2);
+            input_s |= (1 << 2); //select
         }
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_X]) {
-            input_s |= (1 << 3);
+            input_s |= (1 << 3); //start
         }
 
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_RIGHT]) {
@@ -86,21 +85,11 @@ namespace GBC {
             input_d |= (1 << 2);
         }
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_DOWN]) {
-            input_d |= (1 << 3);
+            input_d |= (1 << 3); 
         }
 
-        if ((addresses.read_privledged(JOYP) & (3 << 4)) == 0) {
-            if ((input_d != addresses.input_d) | (input_s != addresses.input_s)) {
-                addresses.write(IF, addresses.read(IF) | (1 << 4));
-            }
-        } else if ((addresses.read_privledged(JOYP) & (1 << 4)) == 0) {
-            if ((input_d != addresses.input_d)) {
-                addresses.write(IF, addresses.read(IF) | (1 << 4));
-            }
-        } else if ((addresses.read_privledged(JOYP) & (2 << 4)) == 0) {
-            if ((input_s != addresses.input_s)) {
-                addresses.write(IF, addresses.read(IF) | (1 << 4));
-            }
+        if (((input_d & addresses.input_d ) ^ input_d) | ((input_s & addresses.input_s) ^ input_s)) {
+            addresses.write(IF, addresses.read(IF) | (1 << 4));
         }
 
 
@@ -109,19 +98,31 @@ namespace GBC {
     }
 
     void GBC::execute_cycle() {
-        cpu.execute();
         ppu.execute_cycle();
+        cpu.execute();
+
         ++cycle_count;
     }
 
     void GBC::debug_execute_cycle(bool flag) {
         prevpc = cpu.pc;
         execute_cycle();
-        
-        if (cycle_count % 10000 == 0) { 
-            // std::cout << std::dec << cycle_count << std::hex << std::endl; 
+
+
+
+
+        if (ppu.debug_callback || (cycle_count % 10000 == 0)) {
+            ppu.debug_callback = false;
+            // std::cout << std::dec << cycle_count << std::hex << std::endl;
             dump_stuff();
+
         }
+
+        if (cycle_count % 100== 0) { 
+            // std::cout << std::dec << cycle_count << std::hex << std::endl; 
+            handle_input();
+        }
+
     }
 
     void GBC::dump_stuff() {
@@ -131,23 +132,24 @@ namespace GBC {
         << "frame: " << frame << '\n'
         << "pc: " << std::hex << cpu.pc << '\n'
         << "cycles: " << std::hex << (int)cpu.cycles << '\n'
-        << "instr: " << std::hex << (int)addresses.read(cpu.pc) << '\n'
+        << "opcode: " << std::hex << (int)cpu.opcode << '\n'
+        << "instr: " << std::hex << (cpu.opcode > 0xFF ? CBinstructions[cpu.opcode&0xFF] : instructions[cpu.opcode&0xFF]) << '\n'
         << "rom bank: " << std::hex << (int)addresses.rom_bank << '\n'
         << "sp: " << std::hex << cpu.sp << '\n'
         << "top of stack: " << std::hex << ((uint16_t)addresses.read(cpu.sp) | 
          ((uint16_t)addresses.read(cpu.sp+1) << 8)) << '\n'
         << "flags: " << std::bitset<8>(cpu.RF) << '\n'
         << "HL: " << std::hex << cpu.getHL() << '\n'
+        << "renderX: " << ppu.renderX << '\n'
+        << "lines: " << ppu.lines << '\n'
         << "stat: " << std::bitset<8>(addresses.read(STAT)) << '\n'
         << "LCDC: " << std::bitset<8>(addresses.read(LCDC)) << '\n'
-        << "lyc: " << std::hex << (int)addresses.read(LCDC) << '\n'
+        << "lyc: " << std::hex << (int)addresses.read(LYC) << '\n'
         << "IE: " << std::hex << (int)addresses.read(IE) << '\n'
         << "IF: " << std::hex << (int)addresses.read(IF) << '\n'
         << "IME: " << std::hex << (int)cpu.IME << '\n'
         << "bg tile map: " << std::hex << (addresses.read(LCDC) & (1 << 3) ? 0x9C00 : 0x9800) << '\n'
-        << std::hex << "dots: " << ppu.dots << '\n'
-        << "lines: " << ppu.lines << '\n'
-        << "renderX: " << ppu.renderX << '\n';
+        << std::hex << "dots: " << ppu.dots << '\n';
         switch(ppu.mode) { 
             case hblank:
             std::ofstream("log.txt", std::ofstream::app) << "state: hblank\n";
@@ -162,10 +164,11 @@ namespace GBC {
             std::ofstream("log.txt", std::ofstream::app) << "state: draw\n";
             break;
         }
-        std::ofstream("log.txt", std::ofstream::app) << std::endl;
+
+        cpu.dump_registers();
         
         std::ofstream("log.txt", std::ofstream::app) << "LY: " << (int)ppu.bus->read(0xFF44) << '\n' << "_________" << std::endl;
-        ppu.dump_info();
-        cpu.dump_info();
+        // ppu.dump_info();
+        // cpu.dump_info();
     }
 }
