@@ -213,7 +213,6 @@ namespace GBC {
             return;
         }
 
-        return;
         switch (mbc) {
             case 0x00:
                 return;
@@ -431,6 +430,7 @@ namespace GBC {
         }
 
         if (address <= 0x5FFF) {
+            if (value <= 8)
             eram_bank = value;
             return;
         }

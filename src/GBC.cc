@@ -1,6 +1,7 @@
 #include "GBC.h"
 #include "bus.h"
 #include "cycles.h"
+#include <bitset>
 
 namespace GBC {
     GBC::GBC() : cpu(&addresses), ppu(&addresses) {
@@ -9,10 +10,14 @@ namespace GBC {
     } 
 
     void GBC::start() {
+        // ppu.init_debug_window();
         ppu.init_window();
 
         addresses.booting = false;
         addresses.IOrange[JOYP-IO_REGISTERS] = 0xFF;
+        addresses.write(OBP0, 0b11100100);
+        addresses.write(OBP1, 0b11100100);
+
     }
 
     // This function is a mess, I'm using it to debug stuff right now
@@ -36,7 +41,7 @@ namespace GBC {
 
             // frame, TODO move out into function
             for (int i = 0; i < 70224; ++i) {
-                debug_execute_cycle(0);
+                execute_cycle();
 
                 if (ppu.mode == vblank) {
 
@@ -47,15 +52,14 @@ namespace GBC {
             while (SDL_PollEvent(&ppu.event)) {
                 if (ppu.event.type == SDL_EVENT_QUIT) breakflag = true;
             }   
-
             // ppu.render_debug();
 
             for (int j = 0; j < 4560; ++j) {
-                debug_execute_cycle(0);
+                execute_cycle();
             }
 
             if (breakflag) break;
-            // std::this_thread::sleep_for(16ms); // TODO make sleep based on elapsed frame execution time
+            // std::this_thread::sleep_for(10ms); // TODO make sleep based on elapsed frame execution time
         }
     }
 
@@ -97,35 +101,29 @@ namespace GBC {
         addresses.input_s = ~input_s;
     }
 
-    void GBC::execute_cycle() {
+    inline void GBC::execute_cycle() {
         ppu.execute_cycle();
         cpu.execute();
 
         ++cycle_count;
+
+        if (cycle_count % 100 == 0) handle_input();
     }
 
-    void GBC::debug_execute_cycle(bool flag) {
-        prevpc = cpu.pc;
+    inline void GBC::debug_execute_cycle(uint32_t freq) {
         execute_cycle();
 
-
-
-
-        if (ppu.debug_callback || (cycle_count % 10000 == 0)) {
-            ppu.debug_callback = false;
-            // std::cout << std::dec << cycle_count << std::hex << std::endl;
-            dump_stuff();
-
+        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_D]) {
+            debug_flag = 1;
         }
-
-        if (cycle_count % 100== 0) { 
+        if (debug_flag && cpu.cycles == 0) { 
             // std::cout << std::dec << cycle_count << std::hex << std::endl; 
-            handle_input();
+            dump_stuff();
         }
 
     }
 
-    void GBC::dump_stuff() {
+    inline void GBC::dump_stuff() {
         std::ofstream("log.txt", std::ofstream::app) 
         << "_________\n"
         << "cycles: " << cycle_count << '\n'
@@ -149,6 +147,9 @@ namespace GBC {
         << "IF: " << std::hex << (int)addresses.read(IF) << '\n'
         << "IME: " << std::hex << (int)cpu.IME << '\n'
         << "bg tile map: " << std::hex << (addresses.read(LCDC) & (1 << 3) ? 0x9C00 : 0x9800) << '\n'
+        << "OBP0: " << std::hex <<  std::bitset<8>(addresses.read(OBP0)) << '\n'
+        << "OBP1: " << std::hex << std::bitset<8>(addresses.read(OBP1))<< '\n'
+
         << std::hex << "dots: " << ppu.dots << '\n';
         switch(ppu.mode) { 
             case hblank:

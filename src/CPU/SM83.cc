@@ -1308,7 +1308,7 @@ namespace GBC {
                 setHL(val);
                 return;
             case 3:
-                setAF(val & 0xF0);
+                setAF(val);
                 return;
             default:
                 throw std::runtime_error("store16t2: invalid register index");
@@ -1320,7 +1320,7 @@ namespace GBC {
     //   reg16 == 1 → DE
     //   reg16 == 2 → HL
     //   reg16 == 3 → SP
-    uint16_t SM83::load16t1(uint8_t reg16) {
+    inline uint16_t SM83::load16t1(uint8_t reg16) {
         switch(reg16) {
             case 0:
                 return getBC();
@@ -1340,7 +1340,7 @@ namespace GBC {
     //   reg16 == 1 → DE
     //   reg16 == 2 → HL
     //   reg16 == 3 → AF
-    uint16_t SM83::load16t2(uint8_t reg16) {
+    inline uint16_t SM83::load16t2(uint8_t reg16) {
         switch(reg16) {
             case 0:
                 return getBC();
@@ -1349,7 +1349,7 @@ namespace GBC {
             case 2:
                 return getHL();
             case 3:
-                return (getAF() & 0xF0);
+                return getAF();
             default:
                 throw std::runtime_error("load16t2: invalid register index");
         }
