@@ -57,7 +57,7 @@ namespace GBC {
         }
 
         if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
-            return cartRAM[address&0x1FF];
+            return cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM];
         }
           
         if (address >= ECHO_RAM1 && address <= EECHO_RAM2) {
@@ -430,7 +430,7 @@ namespace GBC {
         }
 
         if (address <= 0x5FFF) {
-            if (value <= 8)
+            if (value < 3)
             eram_bank = value;
             return;
         }

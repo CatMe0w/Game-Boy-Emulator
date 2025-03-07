@@ -148,7 +148,7 @@ namespace GBC {
         uint8_t vram_bank = 0;
         uint8_t wram_bank = 1;
         uint8_t rom_bank = 1;
-        uint8_t eram_bank = 1;
+        uint8_t eram_bank = 0;
         uint8_t bank_mode = 0;
 
 
